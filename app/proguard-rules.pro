@@ -1,0 +1,3 @@
+-keep class in.dragonbra.javasteam.** { *; }
+-keep class com.github.luben.zstd.** { *; }
+-dontwarn **
