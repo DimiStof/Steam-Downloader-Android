@@ -130,8 +130,8 @@ object SteamManager {
                 authenticator = promptAuthenticator
             }
             val session = steamClient.authentication.beginAuthSessionViaCredentials(details).await()
-            val result = session.pollingWaitForResultAsync().await()
-            completeLogin(result.accountName, result.refreshToken)
+            val (name, token) = pollTokens(session)
+            completeLogin(name, token)
         }
     }
 
@@ -143,9 +143,19 @@ object SteamManager {
             session.challengeUrlChanged = IChallengeUrlChanged { _ ->
                 _ui.value = UiState.Qr(session.challengeUrl)
             }
-            val result = session.pollingWaitForResultAsync().await()
-            completeLogin(result.accountName, result.refreshToken)
+            val (name, token) = pollTokens(session)
+            completeLogin(name, token)
         }
+    }
+
+    /** Waits for the user to approve/finish the auth session and returns (account name, refresh token). */
+    private suspend fun pollTokens(session: Any): Pair<String, String> {
+        val m = Reflect.find(session, "pollingWaitForResult", "pollingWaitForResultAsync")
+            ?: error("No polling method on ${session.javaClass.name}. Available: ${Reflect.members(session)}")
+        val result = Reflect.invokeAwait(session, m) ?: error("Steam returned no sign-in result")
+        val name = Reflect.prop(result, "accountName")?.toString() ?: error("No account name in sign-in result")
+        val token = Reflect.prop(result, "refreshToken")?.toString() ?: error("No refresh token in sign-in result")
+        return name to token
     }
 
     fun loginSaved(account: String) {

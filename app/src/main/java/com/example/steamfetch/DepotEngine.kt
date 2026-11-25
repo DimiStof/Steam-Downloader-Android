@@ -5,6 +5,7 @@ import `in`.dragonbra.javasteam.depotdownloader.IDownloadListener
 import `in`.dragonbra.javasteam.depotdownloader.data.AppItem
 import `in`.dragonbra.javasteam.depotdownloader.data.DownloadItem
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 sealed interface DlState {
@@ -35,6 +36,7 @@ object DepotEngine {
         onUpdate: (status: String, percent: Float?) -> Unit,
     ) {
         val finished = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
 
         val listener = object : IDownloadListener {
             override fun onItemAdded(item: DownloadItem) {
@@ -42,18 +44,22 @@ object DepotEngine {
             }
 
             override fun onDownloadStarted(item: DownloadItem) {
+                started.complete(Unit)
                 onUpdate("Downloading…", null)
             }
 
             override fun onDownloadCompleted(item: DownloadItem) {
+                started.complete(Unit)
                 finished.complete(Unit)
             }
 
             override fun onDownloadFailed(item: DownloadItem, error: Throwable) {
+                started.complete(Unit)
                 finished.completeExceptionally(error)
             }
 
             override fun onStatusUpdate(message: String) {
+                started.complete(Unit)
                 onUpdate(message, null)
             }
 
@@ -63,14 +69,17 @@ object DepotEngine {
                 compressedBytes: Long,
                 uncompressedBytes: Long,
             ) {
+                started.complete(Unit)
                 onUpdate("Depot $depotId", depotPercentComplete)
             }
 
             override fun onDepotCompleted(depotId: Int, compressedBytes: Long, uncompressedBytes: Long) {
+                started.complete(Unit)
                 onUpdate("Depot $depotId finished", 100f)
             }
 
             override fun onFileCompleted(depotId: Int, fileName: String, depotPercentComplete: Float) {
+                started.complete(Unit)
                 onUpdate(fileName, depotPercentComplete)
             }
         }
@@ -80,7 +89,21 @@ object DepotEngine {
             downloader.addListener(listener)
             downloader.add(AppItem(appId = appId, installDirectory = dir.absolutePath, os = os))
             downloader.finishAdding()
-            downloader.startDownloading()
+
+            // This JavaSteam version has no startDownloading(). Depending on the version, the download
+            // either begins by itself after finishAdding(), or via a differently named start method.
+            // Try a start method if one exists; otherwise rely on auto-start.
+            Reflect.find(downloader, "startDownloading", "startDownload", "start")?.let { m ->
+                Reflect.invokeAwait(downloader, m)
+            }
+
+            val begun = withTimeoutOrNull(120_000) { started.await() }
+            if (begun == null) {
+                throw IllegalStateException(
+                    "The download never started. Please send this to the developer: " +
+                        "DepotDownloader methods = ${Reflect.members(downloader)}",
+                )
+            }
             finished.await()
         } finally {
             runCatching { (downloader as? AutoCloseable)?.close() }
