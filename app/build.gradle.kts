@@ -61,6 +61,7 @@ dependencies {
     implementation("in.dragonbra:javasteam-depotdownloader:1.8.0")
     // JavaSteam runtime dependencies on Android
     implementation("org.bouncycastle:bcprov-jdk18on:1.80")
+    implementation("com.madgag.spongycastle:prov:1.58.0.0")
     implementation("org.tukaani:xz:1.10")
     implementation("com.github.luben:zstd-jni:1.5.7-4@aar")
 
